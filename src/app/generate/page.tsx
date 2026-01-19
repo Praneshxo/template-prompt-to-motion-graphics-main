@@ -24,7 +24,7 @@ function GeneratePageContent() {
   const willAutoStart = Boolean(initialPrompt);
 
   const [durationInFrames, setDurationInFrames] = useState(
-    examples[0]?.durationInFrames || 150,
+    examples[0]?.durationInFrames || 600,
   );
   const [fps, setFps] = useState(examples[0]?.fps || 30);
   const [isStreaming, setIsStreaming] = useState(willAutoStart);

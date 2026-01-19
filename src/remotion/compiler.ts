@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import * as Babel from "@babel/standalone";
 import React from "react";
+import * as Remotion from "remotion";
 import {
   AbsoluteFill,
   interpolate,
@@ -17,6 +18,7 @@ import * as THREE from "three";
 export interface CompilationResult {
   Component: React.ComponentType | null;
   error: string | null;
+  durationInFrames?: number;
 }
 
 // Extract component body from full ES6 code with imports
@@ -44,6 +46,42 @@ function extractComponentBody(code: string): string {
 export function compileCode(code: string): CompilationResult {
   if (!code?.trim()) {
     return { Component: null, error: "No code provided" };
+  }
+
+  // Strategy 1: Attempt to compile as a complete module (supports imports, exports, multiple components)
+  try {
+    const transformResult = Babel.transform(code, {
+      presets: ["env", "react", "typescript"],
+      filename: "dynamic.tsx",
+    });
+
+    if (transformResult.code) {
+      const exports: any = {};
+      const module = { exports };
+      
+      const requireFn = (name: string) => {
+        if (name === "react") return React;
+        if (name === "remotion") return { ...Remotion, AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig, spring, Sequence };
+        if (name === "@remotion/shapes") return RemotionShapes;
+        if (name === "@remotion/lottie") return { Lottie };
+        if (name === "@remotion/three") return { ThreeCanvas };
+        if (name === "three") return THREE;
+        throw new Error(`Module '${name}' not found`);
+      };
+
+      const func = new Function("exports", "require", "module", "React", transformResult.code);
+      func(exports, requireFn, module, React);
+
+      // Find the component: default export, or named 'Main', or first exported function
+      const Component = module.exports.default || module.exports.Main || Object.values(module.exports).find((v) => typeof v === "function");
+      const durationInFrames = module.exports.durationInFrames;
+
+      if (Component) {
+        return { Component, error: null, durationInFrames };
+      }
+    }
+  } catch (e) {
+    // If module compilation fails, fall back to the legacy body-extraction method below
   }
 
   try {
