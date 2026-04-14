@@ -11,6 +11,8 @@ import {
   PromptInput,
   type StreamPhase,
   type PromptInputRef,
+  DURATIONS,
+  type DurationId,
 } from "../../components/PromptInput";
 import { examples } from "../../examples/code";
 import { useAnimationState } from "../../hooks/useAnimationState";
@@ -18,26 +20,43 @@ import { useAnimationState } from "../../hooks/useAnimationState";
 function GeneratePageContent() {
   const searchParams = useSearchParams();
   const initialPrompt = searchParams.get("prompt") || "";
+  const initialDurationId = (searchParams.get("duration") as DurationId) || "1min";
+
+  const templateId = searchParams.get("templateId");
+  const initialTemplate = templateId
+    ? examples.find(e => e.id === templateId)
+    : examples[0];
+
+  const initialCode = initialTemplate?.code || examples[0]?.code || "";
+
+  // If template is selected, use its duration/fps
+  // Otherwise use the URL duration param or default
+  const initialDurationFrames = templateId && initialTemplate
+    ? initialTemplate.durationInFrames
+    : (DURATIONS.find(d => d.id === initialDurationId)?.frames || 1800);
 
   // If we have an initial prompt from URL, start in streaming state
   // so syntax highlighting is disabled from the beginning
-  const willAutoStart = Boolean(initialPrompt);
+  const willAutoStart = Boolean(initialPrompt) && !templateId;
+  // If templateId is present, we VALIDATE/COMPILE immediately but don't "stream" generation unless prompt is also there?
+  // Actually, if templateId is there, we just want to show it.
 
-  const [durationInFrames, setDurationInFrames] = useState(
-    examples[0]?.durationInFrames || 600,
+  const [durationInFrames, setDurationInFrames] = useState<number>(
+    initialDurationFrames,
   );
-  const [fps, setFps] = useState(examples[0]?.fps || 30);
+  const [fps, setFps] = useState(initialTemplate?.fps || examples[0]?.fps || 30);
   const [isStreaming, setIsStreaming] = useState(willAutoStart);
   const [streamPhase, setStreamPhase] = useState<StreamPhase>(
     willAutoStart ? "reasoning" : "idle",
   );
   const [prompt, setPrompt] = useState(initialPrompt);
   const [hasAutoStarted, setHasAutoStarted] = useState(false);
-  const [hasGeneratedOnce, setHasGeneratedOnce] = useState(false);
+  // If we loaded a template, we consider it "generated once" so preview shows up and code editor isn't empty
+  const [hasGeneratedOnce, setHasGeneratedOnce] = useState(!!templateId);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  const { code, Component, error, isCompiling, setCode, compileCode } =
-    useAnimationState(examples[0]?.code || "");
+  const { code, Component, error, isCompiling, durationInFrames: compiledDuration, setCode, compileCode } =
+    useAnimationState(initialCode);
 
   // Debounce compilation
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -48,6 +67,20 @@ function GeneratePageContent() {
   useEffect(() => {
     codeRef.current = code;
   }, [code]);
+
+  // Update duration if compiled code specifies one
+  useEffect(() => {
+    if (compiledDuration) {
+      setDurationInFrames(compiledDuration);
+    }
+  }, [compiledDuration]);
+
+  // Initial compile for template load
+  useEffect(() => {
+    if (templateId && initialTemplate) {
+      compileCode(initialTemplate.code);
+    }
+  }, []); // Run once on mount if templateId exists
 
   useEffect(() => {
     const wasStreaming = isStreamingRef.current;
@@ -103,18 +136,18 @@ function GeneratePageContent() {
     setApiError(errorMessage);
   }, []);
 
-  // Auto-trigger generation if prompt came from URL
+  // Auto-trigger generation if prompt came from URL AND NO template was selected
   const promptInputRef = useRef<PromptInputRef>(null);
 
   useEffect(() => {
-    if (initialPrompt && !hasAutoStarted && promptInputRef.current) {
+    if (initialPrompt && !hasAutoStarted && promptInputRef.current && !templateId) {
       setHasAutoStarted(true);
       // Small delay to ensure component is mounted
       setTimeout(() => {
         promptInputRef.current?.triggerGeneration();
       }, 100);
     }
-  }, [initialPrompt, hasAutoStarted]);
+  }, [initialPrompt, hasAutoStarted, templateId]);
 
   return (
     <PageLayout showLogoAsLink>
@@ -125,6 +158,7 @@ function GeneratePageContent() {
             onChange={handleCodeChange}
             isStreaming={isStreaming}
             streamPhase={streamPhase}
+            onRun={() => compileCode(code)}
           />
           <div className="shrink-0 lg:shrink lg:flex-[2.5] lg:min-w-0 lg:h-full">
             <AnimationPlayer
@@ -150,6 +184,12 @@ function GeneratePageContent() {
           onError={handleApiError}
           prompt={prompt}
           onPromptChange={setPrompt}
+          onDurationChange={(durationId) => {
+            const frames = DURATIONS.find((d) => d.id === durationId)?.frames;
+            if (frames) {
+              setDurationInFrames(frames);
+            }
+          }}
         />
       </div>
     </PageLayout>

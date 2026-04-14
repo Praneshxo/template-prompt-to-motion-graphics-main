@@ -41,6 +41,16 @@ export const MODELS = [
 
 export type ModelId = (typeof MODELS)[number]["id"];
 
+export const DURATIONS = [
+  { id: "30sec", name: "30 seconds", frames: 900 },
+  { id: "1min", name: "1 minute", frames: 1800 },
+  { id: "2min", name: "2 minutes", frames: 3600 },
+  { id: "5min", name: "5 minutes", frames: 9000 },
+  { id: "10min", name: "10 minutes", frames: 18000 },
+] as const;
+
+export type DurationId = (typeof DURATIONS)[number]["id"];
+
 export type StreamPhase = "idle" | "reasoning" | "generating";
 
 export interface PromptInputRef {
@@ -59,6 +69,8 @@ interface PromptInputProps {
   onNavigate?: (prompt: string, model: ModelId) => void;
   /** Whether navigation is in progress (for landing variant) */
   isNavigating?: boolean;
+  /** Called when duration selection changes */
+  onDurationChange?: (duration: DurationId) => void;
   /** Whether to show the "View Code examples" link (landing variant) */
   showCodeExamplesLink?: boolean;
 }
@@ -74,6 +86,7 @@ export const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
       prompt: controlledPrompt,
       onPromptChange,
       onNavigate,
+      onDurationChange,
       isNavigating = false,
       showCodeExamplesLink = false,
     },
@@ -95,7 +108,7 @@ export const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
       onStreamingChange?.(true);
       onStreamPhaseChange?.("reasoning");
       try {
-        const response = await fetch("/api/generate", {
+        const response = await fetch("/api/generate-script", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ prompt, model }),
@@ -114,48 +127,36 @@ export const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
         }
 
         const decoder = new TextDecoder();
-        let accumulatedText = "";
-        let buffer = "";
+        onStreamPhaseChange?.("generating");
+
+        let fullJson = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
+          const textChunk = decoder.decode(value, { stream: true });
 
-          // Parse SSE events from the buffer
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || ""; // Keep incomplete line in buffer
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const data = line.slice(6); // Remove "data: " prefix
-
-            if (data === "[DONE]") continue;
-
-            try {
-              const event = JSON.parse(data);
-
-              // Track phase changes
-              if (event.type === "reasoning-start") {
-                onStreamPhaseChange?.("reasoning");
-              } else if (event.type === "text-start") {
-                onStreamPhaseChange?.("generating");
-              } else if (event.type === "text-delta") {
-                accumulatedText += event.delta;
-
-                // Strip markdown code block markers and show raw code during streaming
-                let codeToShow = accumulatedText;
-                codeToShow = codeToShow.replace(/^```(?:tsx?|jsx?)?\n?/, "");
-                codeToShow = codeToShow.replace(/\n?```\s*$/, "");
-
-                onCodeGenerated?.(codeToShow.trim());
-              }
-            } catch {
-              // Ignore parse errors for malformed JSON
-            }
+          if (textChunk.includes('{"error":')) { // Graceful colab fail
+            console.error("API error chunk:", textChunk);
+            onError?.(textChunk);
+            return;
           }
+
+          fullJson += textChunk;
         }
+
+        let parsedJson = null;
+        try {
+          parsedJson = JSON.parse(fullJson.trim());
+        } catch (e) {
+          console.error("Failed to parse JSON script. Showing raw.\n", e, "\nRaw:\n", fullJson);
+          onCodeGenerated?.(`// JSON PARSE ERROR\n/*\n${fullJson}\n*/`);
+          return;
+        }
+
+        // Send the JSON script directly to the handler
+        onCodeGenerated?.(JSON.stringify(parsedJson, null, 2));
       } catch (error) {
         console.error("Error generating code:", error);
         const errorMessage =
@@ -223,11 +224,10 @@ export const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Describe your animation..."
-              className={`w-full bg-transparent text-foreground placeholder:text-muted-foreground-dim focus:outline-none resize-none overflow-y-auto ${
-                isLanding
-                  ? "text-base min-h-[60px] max-h-[200px]"
-                  : "text-sm min-h-[40px] max-h-[150px]"
-              }`}
+              className={`w-full bg-transparent text-foreground placeholder:text-muted-foreground-dim focus:outline-none resize-none overflow-y-auto ${isLanding
+                ? "text-base min-h-[60px] max-h-[200px]"
+                : "text-sm min-h-[40px] max-h-[150px]"
+                }`}
               style={{ fieldSizing: "content" }}
               disabled={isDisabled}
             />
@@ -267,9 +267,8 @@ export const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
           </div>
 
           <div
-            className={`flex flex-wrap items-center gap-1.5 mt-3 ${
-              isLanding ? "justify-center mt-6 gap-2" : ""
-            }`}
+            className={`flex flex-wrap items-center gap-1.5 mt-3 ${isLanding ? "justify-center mt-6 gap-2" : ""
+              }`}
           >
             <span className="text-muted-foreground-dim text-xs mr-1">
               Prompt Examples

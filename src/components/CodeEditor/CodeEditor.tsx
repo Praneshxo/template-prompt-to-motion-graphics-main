@@ -11,6 +11,8 @@ import {
 
 import { EditorHeader } from "./EditorHeader";
 import { StreamingOverlay } from "./StreamingOverlay";
+import { Button } from "../ui/button";
+import { Play } from "lucide-react";
 
 // Monaco must be loaded client-side only
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
@@ -29,6 +31,7 @@ interface CodeEditorProps {
   onChange: (value: string) => void;
   isStreaming?: boolean;
   streamPhase?: StreamPhase;
+  onRun?: () => void;
 }
 
 export const CodeEditor: React.FC<CodeEditorProps> = ({
@@ -36,6 +39,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   onChange,
   isStreaming = false,
   streamPhase = "idle",
+  onRun,
 }) => {
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -306,6 +310,16 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
           />
         </div>
       </div>
-    </div>
+      {
+        onRun && (
+          <div className="flex justify-end pt-3">
+            <Button onClick={onRun} className="gap-2" disabled={isStreaming}>
+              <Play className="w-4 h-4" />
+              Run Code
+            </Button>
+          </div>
+        )
+      }
+    </div >
   );
 };

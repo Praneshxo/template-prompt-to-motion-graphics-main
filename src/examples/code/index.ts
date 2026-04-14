@@ -16,6 +16,7 @@ export interface RemotionExample {
   durationInFrames: number;
   fps: number;
   category: "Text" | "Charts" | "Animation" | "3D" | "Other";
+  component?: any;
 }
 
 export const examples: RemotionExample[] = [

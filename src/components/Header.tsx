@@ -6,25 +6,33 @@ interface HeaderProps {
 }
 
 export function Header({ asLink = false }: HeaderProps) {
-  const content = (
+  const LogoContent = (
     <div className="flex items-center gap-3">
-      <Image src="/logo-white.svg" alt="Remotion" width={32} height={32} />
+      <Image src="/logo-white.svg" alt="Nex" width={32} height={32} />
       <span className="text-xl font-bold text-white font-sans">
-        Remotion - Prompt to Motion Graphics
+        Nex
       </span>
     </div>
   );
 
-  if (asLink) {
-    return (
-      <Link
-        href="/"
-        className="flex items-center hover:opacity-80 transition-opacity"
-      >
-        {content}
-      </Link>
-    );
-  }
+  return (
+    <div className="flex items-center justify-between w-full">
+      {asLink ? (
+        <Link
+          href="/"
+          className="flex items-center hover:opacity-80 transition-opacity"
+        >
+          {LogoContent}
+        </Link>
+      ) : (
+        LogoContent
+      )}
 
-  return content;
+      <nav className="flex items-center gap-6">
+        <Link href="/templates" className="text-muted-foreground hover:text-foreground transition-colors font-medium">
+          Templates
+        </Link>
+      </nav>
+    </div>
+  );
 }

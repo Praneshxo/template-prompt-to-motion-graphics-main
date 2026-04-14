@@ -14,6 +14,7 @@ import * as RemotionShapes from "@remotion/shapes";
 import { Lottie } from "@remotion/lottie";
 import { ThreeCanvas } from "@remotion/three";
 import * as THREE from "three";
+import * as Zod from "zod";
 
 export interface CompilationResult {
   Component: React.ComponentType | null;
@@ -30,16 +31,22 @@ function extractComponentBody(code: string): string {
   );
   const codeWithoutImports = nonImportLines.join("\n");
 
-  // Extract body from "export const MyAnimation = () => { ... };"
+  // Match: export const Foo = <anything> => { ... };
+  // Works with () =>, ({ a, b }: Props) =>, (props: Props) => etc.
   const match = codeWithoutImports.match(
-    /export\s+const\s+\w+\s*=\s*\(\s*\)\s*=>\s*\{([\s\S]*)\};?\s*$/,
+    /export\s+const\s+\w+\s*=\s*[\s\S]*?=>\s*\{([\s\S]*)\};?\s*$/,
   );
   if (match) {
-    return match[1].trim();
+    // Extra safety: strip any import lines that snuck into the body
+    const body = match[1].trim();
+    return body
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("import "))
+      .join("\n");
   }
 
-  // Fallback: return code as-is (backward compatible with body-only input)
-  return code;
+  // Fallback: strip imports and return code as-is
+  return codeWithoutImports;
 }
 
 // Standalone compile function for use outside React components
@@ -58,7 +65,7 @@ export function compileCode(code: string): CompilationResult {
     if (transformResult.code) {
       const exports: any = {};
       const module = { exports };
-      
+
       const requireFn = (name: string) => {
         if (name === "react") return React;
         if (name === "remotion") return { ...Remotion, AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig, spring, Sequence };
@@ -66,7 +73,14 @@ export function compileCode(code: string): CompilationResult {
         if (name === "@remotion/lottie") return { Lottie };
         if (name === "@remotion/three") return { ThreeCanvas };
         if (name === "three") return THREE;
-        throw new Error(`Module '${name}' not found`);
+        if (name === "zod") return Zod;
+        // Stub for any @remotion/google-fonts/* package — returns a no-op loadFont
+        if (name.startsWith("@remotion/google-fonts")) {
+          return { loadFont: () => ({ fontFamily: "Inter, sans-serif" }) };
+        }
+        // Unknown module: return empty object instead of throwing so Strategy 1 doesn't fall through
+        console.warn(`[compiler] Unknown module '${name}' — returning empty stub`);
+        return {};
       };
 
       const func = new Function("exports", "require", "module", "React", transformResult.code);
@@ -77,8 +91,27 @@ export function compileCode(code: string): CompilationResult {
       const durationInFrames = module.exports.durationInFrames;
 
       if (Component) {
-        return { Component, error: null, durationInFrames };
+        // Extract default props from propsSchema (or PropsSchema) so the component
+        // always receives its expected prop types even when rendered without explicit props.
+        const schema = module.exports.propsSchema || module.exports.PropsSchema;
+        let defaultProps: Record<string, unknown> = {};
+        if (schema && typeof schema.parse === "function") {
+          try {
+            defaultProps = schema.parse({});
+          } catch {
+            // schema.parse failed — defaultProps stay empty
+          }
+        }
+
+        // Wrap the component to merge defaultProps with any incoming props
+        const WrappedComponent = (incomingProps: Record<string, unknown>) =>
+          Component({ ...defaultProps, ...incomingProps });
+        // Preserve display name for React DevTools
+        WrappedComponent.displayName = Component.displayName || Component.name || "Animation";
+
+        return { Component: WrappedComponent, error: null, durationInFrames };
       }
+
     }
   } catch (e) {
     // If module compilation fails, fall back to the legacy body-extraction method below

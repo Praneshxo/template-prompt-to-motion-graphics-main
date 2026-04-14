@@ -11,6 +11,7 @@ export interface AnimationState {
   Component: React.ComponentType | null;
   error: string | null;
   isCompiling: boolean;
+  durationInFrames?: number;
 }
 
 export function useAnimationState(initialCode: string = "") {
@@ -19,6 +20,7 @@ export function useAnimationState(initialCode: string = "") {
     Component: null,
     error: null,
     isCompiling: false,
+    durationInFrames: undefined,
   });
 
   // Compile code when it changes (with debouncing handled by caller)
@@ -32,6 +34,7 @@ export function useAnimationState(initialCode: string = "") {
       Component: result.Component,
       error: result.error,
       isCompiling: false,
+      durationInFrames: result.durationInFrames,
     }));
   }, []);
 
