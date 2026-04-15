@@ -12,8 +12,9 @@ interface DynamicCompProps {
   [key: string]: unknown;
 }
 
-export const DynamicComp: React.FC = () => {
-  const { code } = getInputProps() as DynamicCompProps;
+export const DynamicComp: React.FC<DynamicCompProps> = (props) => {
+  const inputProps = getInputProps() as DynamicCompProps;
+  const { code } = (props.code ? props : inputProps);
 
   const [handle] = useState(() => delayRender("Compiling code..."));
   const [Component, setComponent] = useState<React.ComponentType | null>(null);

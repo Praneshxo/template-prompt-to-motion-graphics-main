@@ -65,8 +65,8 @@ interface PromptInputProps {
   variant?: "landing" | "editor";
   prompt?: string;
   onPromptChange?: (prompt: string) => void;
-  /** Called when landing variant submits - receives prompt and model for navigation */
-  onNavigate?: (prompt: string, model: ModelId) => void;
+  /** Called when landing variant submits - receives prompt and duration for navigation */
+  onNavigate?: (prompt: string, duration: DurationId) => void;
   /** Whether navigation is in progress (for landing variant) */
   isNavigating?: boolean;
   /** Called when duration selection changes */
@@ -93,7 +93,7 @@ export const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
     ref,
   ) {
     const [uncontrolledPrompt, setUncontrolledPrompt] = useState("");
-    const [model, setModel] = useState<ModelId>("gpt-5.1:low");
+    const [duration, setDuration] = useState<DurationId>("1min");
 
     // Support both controlled and uncontrolled modes
     const prompt =
@@ -111,7 +111,7 @@ export const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
         const response = await fetch("/api/generate-script", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, model }),
+          body: JSON.stringify({ prompt, duration }),
         });
 
         if (!response.ok) {
@@ -155,10 +155,34 @@ export const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
           return;
         }
 
-        // Send the JSON script directly to the handler
-        onCodeGenerated?.(JSON.stringify(parsedJson, null, 2));
+        // --- PHASE 2: Generate Code from JSON ---
+        onStreamPhaseChange?.("generating"); // Or a new phase if desired
+        const codeResponse = await fetch("/api/generate-code", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scriptJson: parsedJson }),
+        });
+
+        if (!codeResponse.ok) {
+          const errorData = await codeResponse.json().catch(() => ({}));
+          throw new Error(errorData.error || `Code generation error: ${codeResponse.status}`);
+        }
+
+        const codeReader = codeResponse.body?.getReader();
+        if (!codeReader) throw new Error("No code response body");
+
+        let fullCode = "";
+        while (true) {
+          const { done, value } = await codeReader.read();
+          if (done) break;
+
+          const codeChunk = decoder.decode(value, { stream: true });
+          fullCode += codeChunk;
+          onCodeGenerated?.(fullCode); // Stream the code to the editor
+        }
+
       } catch (error) {
-        console.error("Error generating code:", error);
+        console.error("Error in multi-step generation:", error);
         const errorMessage =
           error instanceof Error
             ? error.message
@@ -182,7 +206,7 @@ export const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
 
       // Landing variant uses navigation instead of API call
       if (isLanding && onNavigate) {
-        onNavigate(prompt, model);
+        onNavigate(prompt, duration);
         return;
       }
 
@@ -234,21 +258,25 @@ export const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
 
             <div className="flex justify-between items-center mt-3 pt-3 border-t border-border">
               <Select
-                value={model}
-                onValueChange={(value) => setModel(value as ModelId)}
+                value={duration}
+                onValueChange={(value) => {
+                  const newDuration = value as DurationId;
+                  setDuration(newDuration);
+                  onDurationChange?.(newDuration);
+                }}
                 disabled={isDisabled}
               >
                 <SelectTrigger className="w-auto bg-transparent border-none text-muted-foreground hover:text-foreground transition-colors">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-background-elevated border-border">
-                  {MODELS.map((m) => (
+                  {DURATIONS.map((d) => (
                     <SelectItem
-                      key={m.id}
-                      value={m.id}
+                      key={d.id}
+                      value={d.id}
                       className="text-foreground focus:bg-secondary focus:text-foreground"
                     >
-                      {m.name}
+                      {d.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
